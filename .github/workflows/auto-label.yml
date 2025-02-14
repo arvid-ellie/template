@@ -1,0 +1,94 @@
+name: Issue Management
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      issues: write
+    steps:
+      - name: Initial issue triage
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueBody = context.payload.issue.body || '';
+            const issueTitle = context.payload.issue.title || '';
+            
+            // Skip PR-linked issues
+            if (context.payload.issue.pull_request) {
+              console.log('Skipping PR-linked issue');
+              return;
+            }
+            
+            try {
+              const labels = ['uncategorized 🚨'];  // Start with uncategorized
+              
+              // Automatic categorization based on content
+              const contentLower = (issueBody + issueTitle).toLowerCase();
+              
+              // Type detection
+              if (contentLower.includes('bug') || contentLower.includes('fix') || contentLower.includes('broken')) {
+                labels[0] = 'bug 🐞';  // Replace uncategorized with bug
+              } else if (contentLower.includes('documentation') || contentLower.includes('docs') || contentLower.includes('guide')) {
+                labels[0] = 'documentation 📚';
+              } else if (contentLower.includes('feature') || contentLower.includes('add') || contentLower.includes('new')) {
+                labels[0] = 'feature ⚡';
+              } else if (contentLower.includes('improve') || contentLower.includes('refactor') || contentLower.includes('optimize')) {
+                labels[0] = 'enhancement 🔧';
+              }
+              
+              // Additional labels based on content analysis
+              if (contentLower.includes('quick') || contentLower.includes('simple')) {
+                labels.push('quick win ⚡');
+              }
+              
+              if (contentLower.includes('help') || contentLower.includes('urgent') || contentLower.includes('critical')) {
+                labels.push('help wanted 🙋');
+              }
+              
+              if (contentLower.includes('beginner') || contentLower.includes('starter') || contentLower.includes('easy')) {
+                labels.push('good first issue 🌱');
+              }
+              
+              if (contentLower.includes('need more info') || contentLower.includes('steps to reproduce') || 
+                  contentLower.includes('more details')) {
+                labels.push('needs info ❓');
+              }
+              
+              if (contentLower.includes('discuss') || contentLower.includes('proposal') || 
+                  contentLower.includes('what do you think')) {
+                labels.push('needs consensus 💬');
+              }
+              
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: labels
+              });
+              
+              // Add a welcome comment for first-time contributors
+              const creator = context.payload.issue.user.login;
+              const { data: issueList } = await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                creator: creator,
+                state: 'all'
+              });
+              
+              if (issueList.length === 1) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: `Thanks for creating your first issue @${creator}! 👋\n\nOur team will review this soon. Please make sure to follow our issue templates and contribution guidelines.`
+                });
+              }
+              
+              console.log(`Successfully processed issue #${context.issue.number} with labels: ${labels.join(', ')}`);
+            } catch (error) {
+              core.setFailed(`Failed to process issue: ${error.message}`);
+            }
